@@ -13,9 +13,9 @@ import {
 } from "@codemirror/view";
 import { keymap } from "@codemirror/view";
 
-// State effects for managing easymotion state
-const setEasyMotionState = StateEffect.define<EasyMotionStateField | null>();
-const clearEasyMotionState = StateEffect.define();
+// State effects for managing jump state
+const setJumpState = StateEffect.define<JumpStateField | null>();
+const clearJumpState = StateEffect.define();
 
 // Widget for displaying hint characters
 class HintWidget extends WidgetType {
@@ -33,24 +33,24 @@ class HintWidget extends WidgetType {
   }
 }
 
-type EasyMotionStateField = {
+type JumpStateField = {
   active: boolean;
   hints: Map<number, string>;
   currentInput: string;
 };
 
-// State field to track easymotion state
-const easyMotionState = StateField.define<EasyMotionStateField>({
+// State field to track jump state
+const jumpState = StateField.define<JumpStateField>({
   create() {
     return { active: false, hints: new Map(), currentInput: "" };
   },
 
   update(value, tr) {
     for (let effect of tr.effects) {
-      if (effect.is(setEasyMotionState)) {
+      if (effect.is(setJumpState)) {
         return effect.value!;
       }
-      if (effect.is(clearEasyMotionState)) {
+      if (effect.is(clearJumpState)) {
         return {
           active: false,
           hints: new Map<number, string>(),
@@ -62,7 +62,7 @@ const easyMotionState = StateField.define<EasyMotionStateField>({
   },
 });
 
-// Generate hint characters (using common easy motion characters)
+// Generate hint characters (using common jump characters)
 // Generate hints with increasing character lengths (2-char, then 3-char, etc.)
 function generateHints(count: number) {
   const chars = "abcdefghijklmnopqrstuvwxyz";
@@ -117,7 +117,7 @@ function findJumpTargets(view: EditorView) {
 }
 
 // Decoration plugin for showing hints
-const easyMotionDecorations = ViewPlugin.fromClass(
+const jumpDecorations = ViewPlugin.fromClass(
   class {
     decorations: any;
     constructor(view: EditorView) {
@@ -126,7 +126,7 @@ const easyMotionDecorations = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      const state = update.state.field(easyMotionState);
+      const state = update.state.field(jumpState);
 
       if (!state.active) {
         this.decorations = Decoration.none;
@@ -151,8 +151,8 @@ const easyMotionDecorations = ViewPlugin.fromClass(
   },
 );
 
-// Main easymotion functionality
-function activateEasyMotion(view: EditorView) {
+// Main jump functionality
+function activateJump(view: EditorView) {
   const targets = findJumpTargets(view);
   if (targets.length === 0) return false;
 
@@ -164,7 +164,7 @@ function activateEasyMotion(view: EditorView) {
   });
 
   view.dispatch({
-    effects: setEasyMotionState.of({
+    effects: setJumpState.of({
       active: true,
       hints: hintMap,
       currentInput: "",
@@ -174,14 +174,14 @@ function activateEasyMotion(view: EditorView) {
   return true;
 }
 
-function handleEasyMotionEnter(view: EditorView) {
-  const state: EasyMotionStateField = view.state.field(easyMotionState);
+function handleJumpEnter(view: EditorView) {
+  const state: JumpStateField = view.state.field(jumpState);
   // find early match
   for (let [pos, hint] of state.hints) {
     if (hint == state.currentInput) {
       view.dispatch({
         selection: EditorSelection.cursor(pos),
-        effects: clearEasyMotionState.of(null),
+        effects: clearJumpState.of(null),
         scrollIntoView: true,
       });
     }
@@ -189,12 +189,12 @@ function handleEasyMotionEnter(view: EditorView) {
 
   // if no match is found clear jump state
   view.dispatch({
-    effects: clearEasyMotionState.of(null),
+    effects: clearJumpState.of(null),
   });
 }
 
-function handleEasyMotionInput(view: EditorView, key: string) {
-  const state: EasyMotionStateField = view.state.field(easyMotionState);
+function handleJumpInput(view: EditorView, key: string) {
+  const state: JumpStateField = view.state.field(jumpState);
   if (!state.active) return false;
 
   const newInput = state.currentInput + key;
@@ -208,9 +208,9 @@ function handleEasyMotionInput(view: EditorView, key: string) {
   }
 
   if (matches.length === 0) {
-    // No matches, clear easymotion
+    // No matches, clear jump
     view.dispatch({
-      effects: clearEasyMotionState.of(null),
+      effects: clearJumpState.of(null),
     });
     return true;
   }
@@ -219,7 +219,7 @@ function handleEasyMotionInput(view: EditorView, key: string) {
     // Exact match, jump to position
     view.dispatch({
       selection: EditorSelection.cursor(matches[0].pos),
-      effects: clearEasyMotionState.of(null),
+      effects: clearJumpState.of(null),
       scrollIntoView: true,
     });
     return true;
@@ -238,26 +238,26 @@ function handleEasyMotionInput(view: EditorView, key: string) {
   };
 
   view.dispatch({
-    effects: setEasyMotionState.of(effect),
+    effects: setJumpState.of(effect),
   });
 
   return true;
 }
 
-// Keymap for easymotion
-const easyMotionKeymap = keymap.of([
+// Keymap for jump
+const jumpKeymap = keymap.of([
   {
     key: "Ctrl-;",
     run: (view) => {
-      const state = view.state.field(easyMotionState);
+      const state = view.state.field(jumpState);
       if (state.active) {
         // If already active, clear it
         view.dispatch({
-          effects: clearEasyMotionState.of(null),
+          effects: clearJumpState.of(null),
         });
       } else {
-        // Activate easymotion
-        activateEasyMotion(view);
+        // Activate jump
+        activateJump(view);
       }
       return true;
     },
@@ -265,10 +265,10 @@ const easyMotionKeymap = keymap.of([
   {
     key: "Escape",
     run: (view) => {
-      const state = view.state.field(easyMotionState);
+      const state = view.state.field(jumpState);
       if (state.active) {
         view.dispatch({
-          effects: clearEasyMotionState.of(null),
+          effects: clearJumpState.of(null),
         });
         return true;
       }
@@ -278,14 +278,14 @@ const easyMotionKeymap = keymap.of([
 ]);
 
 // We need Keymap to be seperate so that it has higher precedence.
-const easyMotionEnterKeymap = keymap.of([
+const jumpEnterKeymap = keymap.of([
   {
     key: "Enter",
     run: (view) => {
       console.log("abc");
-      const state = view.state.field(easyMotionState);
+      const state = view.state.field(jumpState);
       if (state.active) {
-        handleEasyMotionEnter(view);
+        handleJumpEnter(view);
         return true;
       }
       return false;
@@ -293,24 +293,24 @@ const easyMotionEnterKeymap = keymap.of([
   },
 ]);
 
-// Handle character input during easymotion
-const easyMotionInputHandler = EditorView.domEventHandlers({
+// Handle character input during jump
+const jumpInputHandler = EditorView.domEventHandlers({
   keydown(event, view) {
     console.log(event);
-    const state = view.state.field(easyMotionState);
+    const state = view.state.field(jumpState);
     if (!state.active) return false;
 
     // Handle alphanumeric input
     if (event.key.length === 1 && /[a-zA-Z0-9]/.test(event.key)) {
       event.preventDefault();
-      return handleEasyMotionInput(view, event.key);
+      return handleJumpInput(view, event.key);
     }
 
     // Handle escape
     if (event.key === "Escape") {
       event.preventDefault();
       view.dispatch({
-        effects: clearEasyMotionState.of(null),
+        effects: clearJumpState.of(null),
       });
       return true;
     }
@@ -319,14 +319,14 @@ const easyMotionInputHandler = EditorView.domEventHandlers({
   },
 });
 
-// Export the complete easymotion extension
+// Export the complete jump extension
 export default function jump() {
   return [
-    easyMotionState,
-    easyMotionDecorations,
-    Prec.high(easyMotionEnterKeymap),
-    easyMotionKeymap,
-    easyMotionInputHandler,
+    jumpState,
+    jumpDecorations,
+    Prec.high(jumpEnterKeymap),
+    jumpKeymap,
+    jumpInputHandler,
     // Add some basic styling
     EditorView.theme({
       ".cm-jump-hint": {
