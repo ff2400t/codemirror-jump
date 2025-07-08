@@ -1,4 +1,5 @@
 import {
+  Compartment,
   EditorSelection,
   type Extension,
   StateEffect,
@@ -62,19 +63,31 @@ export const jumpState = StateField.define<JumpStateField>({
   },
 });
 
+type JumpExtOptions = {
+  triggerKey: string;
+  hintChars: string;
+};
+
 export default class JumpExt {
   hintChars: string;
   stateField: StateField<JumpStateField>;
   decorationPlugin: ViewPlugin<any, undefined>;
   inputHandler: Extension;
   keymap: Extension;
+  triggerKey: string;
+  keymapCompartment: Compartment;
 
-  constructor(hintChars = "abcdefghijklmnopqrstuvwxyz") {
-    this.hintChars = hintChars;
+  constructor(
+    options?: JumpExtOptions,
+  ) {
+    this.hintChars = options?.hintChars || "abcdefghijklmnopqrstuvwxyz";
+    this.triggerKey = options?.triggerKey || "Ctrl-;";
     this.stateField = jumpState;
     this.decorationPlugin = this.createDecorationPlugin();
     this.inputHandler = this.createInputHandler();
-    this.keymap = this.createKeymap();
+
+    this.keymapCompartment = new Compartment();
+    this.keymap = this.createKeymap(this!.triggerKey);
   }
 
   createDecorationPlugin() {
@@ -268,10 +281,10 @@ export default class JumpExt {
     return true;
   }
 
-  createKeymap() {
+  createKeymap(triggerKey: string) {
     return keymap.of([
       {
-        key: "Ctrl-;",
+        key: triggerKey,
         run: (view) => {
           const state = view.state.field(jumpState);
           if (state.active) {
@@ -305,7 +318,6 @@ export default class JumpExt {
         run: (view) => {
           const state = view.state.field(jumpState);
           if (state.active) {
-
             for (let [pos, hint] of state.hints) {
               if (hint == state.currentInput) {
                 view.dispatch({
@@ -327,11 +339,21 @@ export default class JumpExt {
     ]);
   }
 
+  // Method to reconfigure the trigger key at runtime
+  reconfigureTriggerKey(view: EditorView, newTriggerKey: string) {
+    this.triggerKey = newTriggerKey;
+    view.dispatch({
+      effects: this.keymapCompartment.reconfigure(
+        this.createKeymap(newTriggerKey),
+      ),
+    });
+  }
+
   getExtensions() {
     return [
       this.stateField,
       this.decorationPlugin,
-      this.keymap,
+      this.keymapCompartment.of(this.createKeymap(this.triggerKey)),
       this.inputHandler,
       // Add some basic styling
       EditorView.theme({
