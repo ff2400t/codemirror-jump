@@ -1,4 +1,9 @@
-import { EditorSelection, StateEffect, StateField } from "@codemirror/state";
+import {
+  EditorSelection,
+  Prec,
+  StateEffect,
+  StateField,
+} from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -58,47 +63,52 @@ const easyMotionState = StateField.define<EasyMotionStateField>({
 });
 
 // Generate hint characters (using common easy motion characters)
-function generateHints(count: number): string[] {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyz";
-  const hints = [];
+// Generate hints with increasing character lengths (2-char, then 3-char, etc.)
+function generateHints(count: number) {
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  const hints: string[] = [];
+  let length = 2; // Start with 2-character hints
 
-  const base = chars.length;
-  for (let i = 0; i < count; i++) {
-    const first = Math.floor(i / base);
-    const second = i  % base;
-    hints.push(chars[first] + chars[second]);
+  while (hints.length < count) {
+    // Generate all combinations of current length
+    const generateCombinations = (currentLength: number, prefix = "") => {
+      if (prefix.length === currentLength) {
+        hints.push(prefix);
+        return;
+      }
+
+      for (let i = 0; i < chars.length && hints.length < count; i++) {
+        generateCombinations(currentLength, prefix + chars[i]);
+      }
+    };
+
+    generateCombinations(length);
+    length++; // Move to next length if we need more hints
   }
 
-  return hints;
+  return hints.slice(0, count);
 }
 
 // Find all word boundaries and other jump targets
 function findJumpTargets(view: EditorView) {
   const doc = view.state.doc;
   const targets = [];
+  const cursorPos = view.state.selection.main.head;
   const visibleRanges = view.visibleRanges;
 
   for (let range of visibleRanges) {
     const text = doc.sliceString(range.from, range.to);
-    let pos = range.from;
 
-    // Find word boundaries
-    const wordRegex = /\b\w/g;
+    // Find word boundaries with words that are longer than two alphabets
+    const wordRegex = /\b\w{2,}/g;
     let match;
-    while ((match = wordRegex.exec(text)) !== null) {
-      targets.push(pos + match.index);
-    }
 
-    // Find line beginnings (non-whitespace)
-    const lines = text.split("\n");
-    let lineStart = range.from;
-    for (let line of lines) {
-      const firstNonWhite = line.search(/\S/);
-      if (firstNonWhite !== -1) {
-        targets.push(lineStart + firstNonWhite);
+    while ((match = wordRegex.exec(text)) !== null) {
+      const pos = range.from + match.index;
+      // Don't include the current cursor position as a target
+      if (pos !== cursorPos) {
+        targets.push(pos);
       }
-      lineStart += line.length + 1;
     }
   }
 
@@ -162,6 +172,25 @@ function activateEasyMotion(view: EditorView) {
   });
 
   return true;
+}
+
+function handleEasyMotionEnter(view: EditorView) {
+  const state: EasyMotionStateField = view.state.field(easyMotionState);
+  // find early match
+  for (let [pos, hint] of state.hints) {
+    if (hint == state.currentInput) {
+      view.dispatch({
+        selection: EditorSelection.cursor(pos),
+        effects: clearEasyMotionState.of(null),
+        scrollIntoView: true,
+      });
+    }
+  }
+
+  // if no match is found clear jump state
+  view.dispatch({
+    effects: clearEasyMotionState.of(null),
+  });
 }
 
 function handleEasyMotionInput(view: EditorView, key: string) {
@@ -248,9 +277,26 @@ const easyMotionKeymap = keymap.of([
   },
 ]);
 
+// We need Keymap to be seperate so that it has higher precedence.
+const easyMotionEnterKeymap = keymap.of([
+  {
+    key: "Enter",
+    run: (view) => {
+      console.log("abc");
+      const state = view.state.field(easyMotionState);
+      if (state.active) {
+        handleEasyMotionEnter(view);
+        return true;
+      }
+      return false;
+    },
+  },
+]);
+
 // Handle character input during easymotion
 const easyMotionInputHandler = EditorView.domEventHandlers({
   keydown(event, view) {
+    console.log(event);
     const state = view.state.field(easyMotionState);
     if (!state.active) return false;
 
@@ -278,6 +324,7 @@ export default function jump() {
   return [
     easyMotionState,
     easyMotionDecorations,
+    Prec.high(easyMotionEnterKeymap),
     easyMotionKeymap,
     easyMotionInputHandler,
     // Add some basic styling
