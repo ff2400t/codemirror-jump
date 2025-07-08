@@ -1,6 +1,6 @@
 import {
   EditorSelection,
-  Prec,
+  type Extension,
   StateEffect,
   StateField,
 } from "@codemirror/state";
@@ -12,10 +12,6 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { keymap } from "@codemirror/view";
-
-// State effects for managing jump state
-const setJumpState = StateEffect.define<JumpStateField | null>();
-const clearJumpState = StateEffect.define();
 
 // Widget for displaying hint characters
 class HintWidget extends WidgetType {
@@ -39,8 +35,12 @@ type JumpStateField = {
   currentInput: string;
 };
 
+// State effects for managing jump state
+const setJumpState = StateEffect.define<JumpStateField | null>();
+const clearJumpState = StateEffect.define();
+
 // State field to track jump state
-const jumpState = StateField.define<JumpStateField>({
+export const jumpState = StateField.define<JumpStateField>({
   create() {
     return { active: false, hints: new Map(), currentInput: "" };
   },
@@ -62,288 +62,295 @@ const jumpState = StateField.define<JumpStateField>({
   },
 });
 
-// Generate hint characters (using common jump characters)
-// Generate hints with increasing character lengths (2-char, then 3-char, etc.)
-function generateHints(count: number) {
-  const chars = "abcdefghijklmnopqrstuvwxyz";
-  const hints: string[] = [];
-  let length = 2; // Start with 2-character hints
+export default class JumpExt {
+  hintChars: string;
+  stateField: StateField<JumpStateField>;
+  decorationPlugin: ViewPlugin<any, undefined>;
+  inputHandler: Extension;
+  keymap: Extension;
 
-  while (hints.length < count) {
-    // Generate all combinations of current length
-    const generateCombinations = (currentLength: number, prefix = "") => {
-      if (prefix.length === currentLength) {
-        hints.push(prefix);
-        return;
-      }
-
-      for (let i = 0; i < chars.length && hints.length < count; i++) {
-        generateCombinations(currentLength, prefix + chars[i]);
-      }
-    };
-
-    generateCombinations(length);
-    length++; // Move to next length if we need more hints
+  constructor(hintChars = "abcdefghijklmnopqrstuvwxyz") {
+    this.hintChars = hintChars;
+    this.stateField = jumpState;
+    this.decorationPlugin = this.createDecorationPlugin();
+    this.inputHandler = this.createInputHandler();
+    this.keymap = this.createKeymap();
   }
 
-  return hints.slice(0, count);
-}
+  createDecorationPlugin() {
+    const stateField = this.stateField;
 
-// Find all word boundaries and other jump targets
-function findJumpTargets(view: EditorView) {
-  const doc = view.state.doc;
-  const targets = [];
-  const cursorPos = view.state.selection.main.head;
-  const visibleRanges = view.visibleRanges;
+    return ViewPlugin.fromClass(
+      class {
+        decorations: any;
+        constructor(view: EditorView) {
+          this.decorations = Decoration.none;
+          this.update(view as any as ViewUpdate);
+        }
 
-  for (let range of visibleRanges) {
-    const text = doc.sliceString(range.from, range.to);
+        update(update: ViewUpdate) {
+          const state = update.state.field(stateField);
 
-    // Find word boundaries with words that are longer than two alphabets
-    const wordRegex = /\b\w{2,}/g;
-    let match;
+          if (!state.active) {
+            this.decorations = Decoration.none;
+            return;
+          }
 
-    while ((match = wordRegex.exec(text)) !== null) {
-      const pos = range.from + match.index;
-      // Don't include the current cursor position as a target
-      if (pos !== cursorPos) {
-        targets.push(pos);
-      }
-    }
+          const decorations = [];
+          for (let [pos, hint] of state.hints) {
+            decorations.push(
+              Decoration.widget({
+                widget: new HintWidget(hint),
+                side: 0,
+              }).range(pos),
+            );
+          }
+
+          this.decorations = Decoration.set(decorations);
+        }
+      },
+      {
+        decorations: (v) => v.decorations,
+      },
+    );
   }
 
-  // Remove duplicates and sort
-  return [...new Set(targets)].sort((a, b) => a - b);
-}
+  createInputHandler() {
+    const stateField = this.stateField;
+    const hintChars = this.hintChars;
 
-// Decoration plugin for showing hints
-const jumpDecorations = ViewPlugin.fromClass(
-  class {
-    decorations: any;
-    constructor(view: EditorView) {
-      this.decorations = Decoration.none;
-      this.update(view as any as ViewUpdate);
+    return EditorView.domEventHandlers({
+      keydown: (event, view) => {
+        const state = view.state.field(stateField);
+        if (!state.active) return false;
+
+        // Handle hint character input
+        if (event.key.length === 1 && hintChars.includes(event.key)) {
+          event.preventDefault();
+          return this.handleJumpInput(view, event.key);
+        }
+
+        // Handle escape
+        if (event.key === "Escape") {
+          event.preventDefault();
+          view.dispatch({
+            effects: clearJumpState.of(null),
+          });
+          return true;
+        }
+
+        return false;
+      },
+    });
+  }
+
+  // Generate hints with increasing character lengths (2-char, then 3-char, etc.)
+  generateHints(count: number) {
+    const chars = this.hintChars;
+    const hints: string[] = [];
+    let length = 2; // Start with 2-character hints
+
+    while (hints.length < count) {
+      // Generate all combinations of current length
+      const generateCombinations = (currentLength: number, prefix = "") => {
+        if (prefix.length === currentLength) {
+          hints.push(prefix);
+          return;
+        }
+
+        for (let i = 0; i < chars.length && hints.length < count; i++) {
+          generateCombinations(currentLength, prefix + chars[i]);
+        }
+      };
+
+      generateCombinations(length);
+      length++; // Move to next length if we need more hints
     }
 
-    update(update: ViewUpdate) {
-      const state = update.state.field(jumpState);
+    return hints.slice(0, count);
+  }
 
-      if (!state.active) {
-        this.decorations = Decoration.none;
-        return;
+  // Find all word boundaries and other jump targets
+  findJumpTargets(view: EditorView) {
+    const doc = view.state.doc;
+    const cursorPos = view.state.selection.main.head;
+    const visibleRanges = view.visibleRanges;
+    const targets = [];
+
+    // Find all word boundaries in visible ranges
+    for (let range of visibleRanges) {
+      const text = doc.sliceString(range.from, range.to);
+
+      // Find word boundaries only
+      const wordRegex = /\b\w/g;
+      let match;
+      while ((match = wordRegex.exec(text)) !== null) {
+        const pos = range.from + match.index;
+        // Don't include the current cursor position as a target
+        if (pos !== cursorPos) {
+          targets.push(pos);
+        }
       }
-
-      const decorations = [];
-      for (let [pos, hint] of state.hints) {
-        decorations.push(
-          Decoration.widget({
-            widget: new HintWidget(hint),
-            side: 0,
-          }).range(pos),
-        );
-      }
-
-      this.decorations = Decoration.set(decorations);
     }
-  },
-  {
-    decorations: (v) => v.decorations,
-  },
-);
 
-// Main jump functionality
-function activateJump(view: EditorView) {
-  const targets = findJumpTargets(view);
-  if (targets.length === 0) return false;
+    // Remove duplicates and sort
+    return [...new Set(targets)].sort((a, b) => a - b);
+  }
 
-  const hints = generateHints(targets.length);
-  const hintMap = new Map();
+  activateJump(view: EditorView) {
+    const targets = this.findJumpTargets(view);
+    if (targets.length === 0) return false;
 
-  targets.forEach((pos, i) => {
-    hintMap.set(pos, hints[i]);
-  });
+    const hints = this.generateHints(targets.length);
+    const hintMap = new Map();
 
-  view.dispatch({
-    effects: setJumpState.of({
-      active: true,
-      hints: hintMap,
-      currentInput: "",
-    }),
-  });
+    targets.forEach((pos, i) => {
+      hintMap.set(pos, hints[i]);
+    });
 
-  return true;
-}
+    view.dispatch({
+      effects: setJumpState.of({
+        active: true,
+        hints: hintMap,
+        currentInput: "",
+      }),
+    });
 
-function handleJumpEnter(view: EditorView) {
-  const state: JumpStateField = view.state.field(jumpState);
-  // find early match
-  for (let [pos, hint] of state.hints) {
-    if (hint == state.currentInput) {
+    return true;
+  }
+
+  handleJumpInput(view: EditorView, key: string) {
+    const state = view.state.field(this.stateField);
+    if (!state.active) return false;
+
+    const newInput = state.currentInput + key;
+
+    // Find matching hints
+    const matches = [];
+    for (let [pos, hint] of state.hints) {
+      if (hint.startsWith(newInput)) {
+        matches.push({ pos, hint });
+      }
+    }
+
+    if (matches.length === 0) {
+      // No matches, clear jump
       view.dispatch({
-        selection: EditorSelection.cursor(pos),
+        effects: clearJumpState.of(null),
+      });
+      return true;
+    }
+
+    if (matches.length === 1 && matches[0].hint === newInput) {
+      // Exact match, jump to position
+      view.dispatch({
+        selection: EditorSelection.cursor(matches[0].pos),
         effects: clearJumpState.of(null),
         scrollIntoView: true,
       });
-    }
-  }
-
-  // if no match is found clear jump state
-  view.dispatch({
-    effects: clearJumpState.of(null),
-  });
-}
-
-function handleJumpInput(view: EditorView, key: string) {
-  const state: JumpStateField = view.state.field(jumpState);
-  if (!state.active) return false;
-
-  const newInput = state.currentInput + key;
-
-  // Find matching hints
-  const matches = [];
-  for (let [pos, hint] of state.hints) {
-    if (hint.startsWith(newInput)) {
-      matches.push({ pos, hint });
-    }
-  }
-
-  if (matches.length === 0) {
-    // No matches, clear jump
-    view.dispatch({
-      effects: clearJumpState.of(null),
-    });
-    return true;
-  }
-
-  if (matches.length === 1 && matches[0].hint === newInput) {
-    // Exact match, jump to position
-    view.dispatch({
-      selection: EditorSelection.cursor(matches[0].pos),
-      effects: clearJumpState.of(null),
-      scrollIntoView: true,
-    });
-    return true;
-  }
-
-  // Update current input and filter hints
-  const newHints = new Map<number, string>();
-  matches.forEach(({ pos, hint }) => {
-    newHints.set(pos, hint);
-  });
-
-  const effect = {
-    active: true,
-    hints: newHints,
-    currentInput: newInput,
-  };
-
-  view.dispatch({
-    effects: setJumpState.of(effect),
-  });
-
-  return true;
-}
-
-// Keymap for jump
-const jumpKeymap = keymap.of([
-  {
-    key: "Ctrl-;",
-    run: (view) => {
-      const state = view.state.field(jumpState);
-      if (state.active) {
-        // If already active, clear it
-        view.dispatch({
-          effects: clearJumpState.of(null),
-        });
-      } else {
-        // Activate jump
-        activateJump(view);
-      }
-      return true;
-    },
-  },
-  {
-    key: "Escape",
-    run: (view) => {
-      const state = view.state.field(jumpState);
-      if (state.active) {
-        view.dispatch({
-          effects: clearJumpState.of(null),
-        });
-        return true;
-      }
-      return false;
-    },
-  },
-]);
-
-// We need Keymap to be seperate so that it has higher precedence.
-const jumpEnterKeymap = keymap.of([
-  {
-    key: "Enter",
-    run: (view) => {
-      console.log("abc");
-      const state = view.state.field(jumpState);
-      if (state.active) {
-        handleJumpEnter(view);
-        return true;
-      }
-      return false;
-    },
-  },
-]);
-
-// Handle character input during jump
-const jumpInputHandler = EditorView.domEventHandlers({
-  keydown(event, view) {
-    console.log(event);
-    const state = view.state.field(jumpState);
-    if (!state.active) return false;
-
-    // Handle alphanumeric input
-    if (event.key.length === 1 && /[a-zA-Z0-9]/.test(event.key)) {
-      event.preventDefault();
-      return handleJumpInput(view, event.key);
-    }
-
-    // Handle escape
-    if (event.key === "Escape") {
-      event.preventDefault();
-      view.dispatch({
-        effects: clearJumpState.of(null),
-      });
       return true;
     }
 
-    return false;
-  },
-});
+    // Update current input and filter hints
+    const newHints = new Map();
+    matches.forEach(({ pos, hint }) => {
+      newHints.set(pos, hint);
+    });
 
-// Export the complete jump extension
-export default function jump() {
-  return [
-    jumpState,
-    jumpDecorations,
-    Prec.high(jumpEnterKeymap),
-    jumpKeymap,
-    jumpInputHandler,
-    // Add some basic styling
-    EditorView.theme({
-      ".cm-jump-hint": {
-        position: "absolute",
-        background: "#ff6b6b",
-        color: "white",
-        fontWeight: "bold",
-        fontSize: "12px",
-        padding: "2px 4px",
-        borderRadius: "3px",
-        zIndex: 1000,
-        boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-        fontFamily: "monospace",
-        lineHeight: 1,
-        marginTop: "-2px",
-        marginLeft: "-2px",
+    view.dispatch({
+      effects: setJumpState.of({
+        active: true,
+        hints: newHints,
+        currentInput: newInput,
+      }),
+    });
+
+    return true;
+  }
+
+  createKeymap() {
+    return keymap.of([
+      {
+        key: "Ctrl-;",
+        run: (view) => {
+          const state = view.state.field(jumpState);
+          if (state.active) {
+            // If already active, clear it
+            view.dispatch({
+              effects: clearJumpState.of(null),
+            });
+          } else {
+            // Activate jump
+            this.activateJump(view);
+          }
+          return true;
+        },
       },
-    }),
-  ];
+      {
+        key: "Escape",
+        run: (view) => {
+          const state = view.state.field(jumpState);
+          if (state.active) {
+            view.dispatch({
+              effects: clearJumpState.of(null),
+            });
+            return true;
+          }
+          return false;
+        },
+      },
+
+      {
+        key: "Enter",
+        run: (view) => {
+          const state = view.state.field(jumpState);
+          if (state.active) {
+
+            for (let [pos, hint] of state.hints) {
+              if (hint == state.currentInput) {
+                view.dispatch({
+                  selection: EditorSelection.cursor(pos),
+                  effects: clearJumpState.of(null),
+                  scrollIntoView: true,
+                });
+              }
+            }
+            // if no match is found clear jump state
+            view.dispatch({
+              effects: clearJumpState.of(null),
+            });
+            return true;
+          }
+          return false;
+        },
+      },
+    ]);
+  }
+
+  getExtensions() {
+    return [
+      this.stateField,
+      this.decorationPlugin,
+      this.keymap,
+      this.inputHandler,
+      // Add some basic styling
+      EditorView.theme({
+        ".cm-jump-hint": {
+          position: "absolute",
+          background: "#ff6b6b",
+          color: "white",
+          fontWeight: "bold",
+          fontSize: "12px",
+          padding: "2px 4px",
+          borderRadius: "3px",
+          zIndex: 1000,
+          boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+          fontFamily: "monospace",
+          lineHeight: 1,
+          marginTop: "-2px",
+          marginLeft: "-2px",
+        },
+      }),
+    ];
+  }
 }
