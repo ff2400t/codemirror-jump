@@ -2,6 +2,7 @@ import {
   Compartment,
   EditorSelection,
   type Extension,
+  Prec,
   StateEffect,
   StateField,
 } from "@codemirror/state";
@@ -32,7 +33,7 @@ class HintWidget extends WidgetType {
 
 type JumpStateField = {
   active: boolean;
-  hints: Map<number, string>;
+  hints: Array<{ pos: number; hint: string }>;
   currentInput: string;
 };
 
@@ -43,7 +44,7 @@ const clearJumpState = StateEffect.define();
 // State field to track jump state
 export const jumpState = StateField.define<JumpStateField>({
   create() {
-    return { active: false, hints: new Map(), currentInput: "" };
+    return { active: false, hints: [], currentInput: "" };
   },
 
   update(value, tr) {
@@ -54,7 +55,7 @@ export const jumpState = StateField.define<JumpStateField>({
       if (effect.is(clearJumpState)) {
         return {
           active: false,
-          hints: new Map<number, string>(),
+          hints: [],
           currentInput: "",
         };
       }
@@ -109,15 +110,12 @@ export default class JumpExt {
             return;
           }
 
-          const decorations = [];
-          for (let [pos, hint] of state.hints) {
-            decorations.push(
-              Decoration.widget({
-                widget: new HintWidget(hint),
-                side: 0,
-              }).range(pos),
-            );
-          }
+          const decorations = state.hints.map(({ pos, hint }) =>
+            Decoration.widget({
+              widget: new HintWidget(hint),
+              side: 0,
+            }).range(pos)
+          );
 
           this.decorations = Decoration.set(decorations);
         }
@@ -215,16 +213,13 @@ export default class JumpExt {
     if (targets.length === 0) return false;
 
     const hints = this.generateHints(targets.length);
-    const hintMap = new Map();
 
-    targets.forEach((pos, i) => {
-      hintMap.set(pos, hints[i]);
-    });
+    const hints_arr = targets.map((pos, i) => ({ pos, hint: hints[i] }));
 
     view.dispatch({
       effects: setJumpState.of({
         active: true,
-        hints: hintMap,
+        hints: hints_arr,
         currentInput: "",
       }),
     });
@@ -239,12 +234,7 @@ export default class JumpExt {
     const newInput = state.currentInput + key;
 
     // Find matching hints
-    const matches = [];
-    for (let [pos, hint] of state.hints) {
-      if (hint.startsWith(newInput)) {
-        matches.push({ pos, hint });
-      }
-    }
+    const matches = state.hints.filter((a) => a.hint.startsWith(newInput));
 
     if (matches.length === 0) {
       // No matches, clear jump
@@ -264,16 +254,10 @@ export default class JumpExt {
       return true;
     }
 
-    // Update current input and filter hints
-    const newHints = new Map();
-    matches.forEach(({ pos, hint }) => {
-      newHints.set(pos, hint);
-    });
-
     view.dispatch({
       effects: setJumpState.of({
         active: true,
-        hints: newHints,
+        hints: matches,
         currentInput: newInput,
       }),
     });
@@ -312,13 +296,15 @@ export default class JumpExt {
           return false;
         },
       },
-
+      // Enter key is used to match early. So if there are two hints like aa and aaa
+      // The user can click enter after matching aa to jump there
+      // this is the key that requires the higher precedence
       {
         key: "Enter",
         run: (view) => {
           const state = view.state.field(jumpState);
           if (state.active) {
-            for (let [pos, hint] of state.hints) {
+            for (let { pos, hint } of state.hints) {
               if (hint == state.currentInput) {
                 view.dispatch({
                   selection: EditorSelection.cursor(pos),
@@ -353,7 +339,8 @@ export default class JumpExt {
     return [
       this.stateField,
       this.decorationPlugin,
-      this.keymapCompartment.of(this.createKeymap(this.triggerKey)),
+      // this needs to be of High precedence so that the enter key input works in the keymap
+      Prec.high(this.keymapCompartment.of(this.createKeymap(this.triggerKey))),
       this.inputHandler,
       // Add some basic styling
       EditorView.theme({
