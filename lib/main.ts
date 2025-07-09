@@ -65,10 +65,10 @@ export const jumpState = StateField.define<JumpStateField>({
   },
 });
 
-type JumpExtOptions = {
+interface JumpExtOptions {
   triggerKey: string;
   hintChars: string;
-};
+}
 
 export default class JumpExt {
   hintChars: string;
@@ -76,14 +76,14 @@ export default class JumpExt {
   decorationPlugin: ViewPlugin<any, undefined>;
   inputHandler: Extension;
   keymap: Extension;
-  triggerKey: string;
+  triggerKey: string | undefined;
   keymapCompartment: Compartment;
 
   constructor(
-    options?: JumpExtOptions,
+    options: JumpExtOptions,
   ) {
     this.hintChars = options?.hintChars || "abcdefghijklmnopqrstuvwxyz";
-    this.triggerKey = options?.triggerKey || "Ctrl-;";
+    this.triggerKey = options?.triggerKey ?? "Ctrl-;";
     this.stateField = jumpState;
     this.decorationPlugin = this.createDecorationPlugin();
     this.inputHandler = this.createInputHandler();
@@ -194,27 +194,11 @@ export default class JumpExt {
     return true;
   }
 
-  createKeymap(triggerKey: string) {
-    return keymap.of([
-      {
-        key: triggerKey,
-        run: (view) => {
-          const state = view.state.field(jumpState);
-          if (state.active) {
-            // If already active, clear it
-            view.dispatch({
-              effects: clearJumpState.of(null),
-            });
-          } else {
-            // Activate jump
-            this.activateJump(view);
-          }
-          return true;
-        },
-      },
+  createKeymap(triggerKey: string | undefined) {
+    const arr: KeyBinding[] = [
       {
         key: "Escape",
-        run: (view) => {
+        run: (view: EditorView) => {
           const state = view.state.field(jumpState);
           if (state.active) {
             view.dispatch({
@@ -230,7 +214,7 @@ export default class JumpExt {
       // this is the key that requires the higher precedence
       {
         key: "Enter",
-        run: (view) => {
+        run: (view: EditorView) => {
           const state = view.state.field(jumpState);
           if (state.active) {
             for (let { pos, hint } of state.hints) {
@@ -251,7 +235,28 @@ export default class JumpExt {
           return false;
         },
       },
-    ]);
+    ];
+
+    if (triggerKey != "" || triggerKey != undefined) {
+      arr.unshift({
+        key: triggerKey,
+        run: (view) => {
+          const state = view.state.field(jumpState);
+          if (state.active) {
+            // If already active, clear it
+            view.dispatch({
+              effects: clearJumpState.of(null),
+            });
+          } else {
+            // Activate jump
+            activateJump(view, this.hintChars);
+          }
+          return true;
+        },
+      });
+    }
+
+    return keymap.of(arr);
   }
 
   // Method to reconfigure the trigger key at runtime
