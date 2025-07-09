@@ -5,8 +5,41 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vite + TS</title>
+    <style>
+      kbd {
+        background-color: #eee;
+        border-radius: 3px;
+        border: 1px solid #b4b4b4;
+        box-shadow:
+          0 1px 1px rgb(0 0 0 / 0.2),
+          0 2px 0 0 rgb(255 255 255 / 0.7) inset;
+        color: #333;
+        display: inline-block;
+        font-size: 0.85em;
+        font-weight: 700;
+        line-height: 1;
+        padding: 2px 4px;
+        white-space: nowrap;
+      }
+    </style>
   </head>
   <body>
+    <p>
+      This is demo for the Jump mechanism. With this one you will see that the
+      trigger is key <kbd>Ctrl</kbd> + <kbd>;</kbd>. The Hint characters are the
+      Home row keys on a Qwerty Keyboard:
+      <kbd>a</kbd>
+      <kbd>s</kbd>
+      <kbd>d</kbd>
+      <kbd>f</kbd>
+      <kbd>g</kbd>
+      <kbd>h</kbd>
+      <kbd>j</kbd>
+      <kbd>k</kbd>
+      <kbd>l</kbd>
+      <kbd>;</kbd>
+      <kbd>'</kbd>
+    </p>
     <div id="editor"></div>
     <script type="module" src="/demo/main.ts"></script>
   </body>
