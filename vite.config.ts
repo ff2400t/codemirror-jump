@@ -10,8 +10,9 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, "lib/main.js"),
       // Name is only required for umd and iife builds
-      name: "codemirrorJump",
-      formats: ['es']
+      name: "codemirror-jump",
+      fileName: "main",
+      formats: ["es"],
     },
     rollupOptions: {
       // make sure to externalize deps that shouldn't be bundled
