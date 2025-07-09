@@ -9,6 +9,7 @@ import {
 import {
   Decoration,
   EditorView,
+  KeyBinding,
   ViewPlugin,
   ViewUpdate,
   WidgetType,
@@ -155,78 +156,6 @@ export default class JumpExt {
     });
   }
 
-  // Generate hints with increasing character lengths (2-char, then 3-char, etc.)
-  generateHints(count: number) {
-    const chars = this.hintChars;
-    const hints: string[] = [];
-    let length = 2; // Start with 2-character hints
-
-    while (hints.length < count) {
-      // Generate all combinations of current length
-      const generateCombinations = (currentLength: number, prefix = "") => {
-        if (prefix.length === currentLength) {
-          hints.push(prefix);
-          return;
-        }
-
-        for (let i = 0; i < chars.length && hints.length < count; i++) {
-          generateCombinations(currentLength, prefix + chars[i]);
-        }
-      };
-
-      generateCombinations(length);
-      length++; // Move to next length if we need more hints
-    }
-
-    return hints.slice(0, count);
-  }
-
-  // Find all word boundaries and other jump targets
-  findJumpTargets(view: EditorView) {
-    const doc = view.state.doc;
-    const cursorPos = view.state.selection.main.head;
-    const visibleRanges = view.visibleRanges;
-    const targets = [];
-
-    // Find all word boundaries in visible ranges
-    for (let range of visibleRanges) {
-      const text = doc.sliceString(range.from, range.to);
-
-      // Find word boundaries only
-      const wordRegex = /\b\w/g;
-      let match;
-      while ((match = wordRegex.exec(text)) !== null) {
-        const pos = range.from + match.index;
-        // Don't include the current cursor position as a target
-        if (pos !== cursorPos) {
-          targets.push(pos);
-        }
-      }
-    }
-
-    // Remove duplicates and sort
-    return [...new Set(targets)].sort((a, b) => a - b);
-  }
-
-  activateJump(view: EditorView) {
-    const targets = this.findJumpTargets(view);
-    if (targets.length === 0) return false;
-
-    const hints = this.generateHints(targets.length);
-
-    const hints_arr = targets.map((pos, i) => ({ pos, hint: hints[i] }));
-
-    view.dispatch({
-      effects: setJumpState.of({
-        active: true,
-        hints: hints_arr,
-        currentInput: "",
-      }),
-    });
-
-    return true;
-  }
-
   handleJumpInput(view: EditorView, key: string) {
     const state = view.state.field(this.stateField);
     if (!state.active) return false;
@@ -362,4 +291,74 @@ export default class JumpExt {
       }),
     ];
   }
+}
+
+function activateJump(view: EditorView, chars: string) {
+  const targets = findJumpTargets(view);
+  if (targets.length === 0) return false;
+
+  const hints = generateHints(chars, targets.length);
+
+  const hints_arr = targets.map((pos, i) => ({ pos, hint: hints[i] }));
+
+  view.dispatch({
+    effects: setJumpState.of({
+      active: true,
+      hints: hints_arr,
+      currentInput: "",
+    }),
+  });
+
+  return true;
+}
+// Find all word boundaries and other jump targets
+function findJumpTargets(view: EditorView): number[] {
+  const doc = view.state.doc;
+  const cursorPos = view.state.selection.main.head;
+  const visibleRanges = view.visibleRanges;
+  const targets = [];
+
+  // Find all word boundaries in visible ranges
+  for (let range of visibleRanges) {
+    const text = doc.sliceString(range.from, range.to);
+
+    // Find word boundaries only
+    const wordRegex = /\b\w/g;
+    let match;
+    while ((match = wordRegex.exec(text)) !== null) {
+      const pos = range.from + match.index;
+      // Don't include the current cursor position as a target
+      if (pos !== cursorPos) {
+        targets.push(pos);
+      }
+    }
+  }
+
+  // Remove duplicates and sort
+  return [...new Set(targets)].sort((a, b) => a - b);
+}
+
+// Generate hints with increasing character lengths (2-char, then 3-char, etc.)
+function generateHints(chars: string, count: number): string[] {
+  const hints: string[] = [];
+  let length = 2; // Start with 2-character hints
+
+  while (hints.length < count) {
+    // Generate all combinations of current length
+    const generateCombinations = (currentLength: number, prefix = "") => {
+      if (prefix.length === currentLength) {
+        hints.push(prefix);
+        return;
+      }
+
+      for (let i = 0; i < chars.length && hints.length < count; i++) {
+        generateCombinations(currentLength, prefix + chars[i]);
+      }
+    };
+
+    generateCombinations(length);
+    length++; // Move to next length if we need more hints
+  }
+
+  return hints.slice(0, count);
 }
