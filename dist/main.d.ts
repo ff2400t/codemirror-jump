@@ -10,8 +10,8 @@ type JumpStateField = {
 };
 export declare const jumpState: StateField<JumpStateField>;
 interface JumpExtOptions {
-    triggerKey: string | undefined;
-    hintChars: string | undefined;
+    triggerKey: string;
+    hintChars: string;
 }
 export default class JumpExt {
     hintChars: string;
@@ -19,20 +19,18 @@ export default class JumpExt {
     decorationPlugin: ViewPlugin<any, undefined>;
     inputHandler: Extension;
     keymap: Extension;
-    triggerKey: string;
+    triggerKey: string | undefined;
     keymapCompartment: Compartment;
-    constructor(options?: JumpExtOptions);
+    constructor(options: JumpExtOptions);
     createDecorationPlugin(): ViewPlugin<{
         decorations: any;
         update(update: ViewUpdate): void;
     }, undefined>;
     createInputHandler(): Extension;
-    generateHints(count: number): string[];
-    findJumpTargets(view: EditorView): number[];
-    activateJump(view: EditorView): boolean;
     handleJumpInput(view: EditorView, key: string): boolean;
-    createKeymap(triggerKey: string): Extension;
+    createKeymap(triggerKey: string | undefined): Extension;
     reconfigureTriggerKey(view: EditorView, newTriggerKey: string): void;
     getExtensions(): (StateField<JumpStateField> | Extension)[];
 }
+export declare function activateJump(view: EditorView, chars: string): boolean;
 export {};

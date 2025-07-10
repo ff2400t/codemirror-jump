@@ -298,7 +298,7 @@ export default class JumpExt {
   }
 }
 
-function activateJump(view: EditorView, chars: string) {
+export function activateJump(view: EditorView, chars: string) {
   const targets = findJumpTargets(view);
   if (targets.length === 0) return false;
 
